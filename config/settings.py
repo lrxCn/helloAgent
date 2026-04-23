@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = PROJECT_ROOT / "logs"
 
 # ─── 日志 ───
-LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "7"))
+LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "1"))
 
 # ─── 向量数据库 ───
 VECTOR_DB_TYPE = os.getenv("VECTOR_DB_TYPE", "qdrant")
@@ -26,3 +26,9 @@ OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "")
 
 # ─── Embedding ───
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+
+# ─── Prompt ───
+SYSTEM_PROMPT = os.getenv(
+    "SYSTEM_PROMPT",
+    "你是一个有帮助的 AI 助手，请用中文回答用户的问题。回答要简洁清晰。",
+)
