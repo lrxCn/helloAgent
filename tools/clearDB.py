@@ -1,4 +1,4 @@
-"""清理 Qdrant 数据库中的 collection。
+"""清理向量数据库中的 collection。
 
 用法:
     uv run python tools/clearDB.py -a              # 删除所有 collection
@@ -9,20 +9,18 @@
 
 import argparse
 
-from qdrant_client import QdrantClient
-
-from src.config.settings import QDRANT_HOST, QDRANT_PORT
-from src.utils.text import parse_names
+from dao import get_dao
+from utils.text import parse_names
 
 
 def main():
-    parser = argparse.ArgumentParser(description="清理 Qdrant collection")
+    parser = argparse.ArgumentParser(description="清理向量数据库 collection")
     parser.add_argument("-a", "--all", action="store_true", help="删除所有 collection")
     parser.add_argument("names", nargs="*", help="要删除的 collection 名称（支持逗号/空格分隔）")
     args = parser.parse_args()
 
-    client = QdrantClient(QDRANT_HOST, port=QDRANT_PORT)
-    existing = {col.name for col in client.get_collections().collections}
+    dao = get_dao()
+    existing = set(dao.list_collections())
 
     if not existing:
         print("数据库中没有任何 collection。")
@@ -51,7 +49,7 @@ def main():
         if name not in existing:
             print(f"⚠️  跳过: {name}（不存在）")
             continue
-        # client.delete_collection(collection_name=name)
+        dao.delete_collection(name)
         print(f"✅ 已删除: {name}")
 
     print("完成。")

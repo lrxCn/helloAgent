@@ -14,7 +14,9 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["core*", "utils*", "config*", "dao*"]
+
 
 
 [build-system]
