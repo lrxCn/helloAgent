@@ -6,15 +6,14 @@
       2. 准备embeddings，for rerank
    2. 配置systemPrompt，预留user_prompt
    3. 输出 output_parsers
-2. 加载rag
-   1. data目录下chunk
-   2. dataManage
-      1. 同source：更新
-      2. chunk做md5
-      3. 如果表不存在创建表
-         1. 通过1个query获取表维度
-         2. 根据维度创建表格
-      4. 根据md5做差异化，存入表
+2. 加载 RAG (双重增量同步模式)
+   1. **第一道防线：文件级拦截 (src/core/loader.py)**
+      - 扫描 data 目录，通过 `.sync_state.json` 比对文件 `mtime`。
+      - 未修改文件直接拦截，避免重复分块，显著降低本地 CPU 消耗。
+   2. **第二道防线：索引级同步 (Indexing API)**
+      - 初始化 `Record Manager` 持久化文档哈希与同步状态。
+      - 自动处理：新增 (Added)、更新 (Updated)、跳过 (Skipped)。
+      - 自动清理：清理已从磁盘删除的源文件对应的历史向量。
 3. 处理对话与命令
    1. 退出
    2. 异常处理
@@ -41,23 +40,23 @@ graph TD
         P2_1 --> P3[配置输出 output_parsers]
     end
 
-    P3 --> R1
+    P3 --> R0
     
     subgraph Phase2 [二、加载 RAG 数据]
-        R1[扫描 data 目录执行 Chunk] --> R2[Data Manage]
-        R2 --> R2_1(同 source：准备更新)
-        R2_1 --> R2_2(对各个 Chunk 计算 MD5)
-        R2_2 --> R3{判断表是否存在?}
+        R0[扫描 data 目录] --> R1{第一道防线: mtime 检查}
+        R1 -->|已修改/新文件| R2[执行分块 Chunking]
+        R1 -->|未变动| R7[(同步完成)]
         
-        R3 -->|不存在| R3_1(通过1个query获取表维度)
-        R3_1 --> R3_2(根据维度动态创建表格)
-        R3_2 --> R4
-        
-        R3 -->|已存在| R4(根据 MD5 进行差异化对比)
-        R4 --> R5[(将新增或差异数据存入表)]
+        R2 --> R3[第二道防线: Indexing Sync]
+        R3 --> R4{Indexing API 比对}
+        R4 -->|新增/更新| R5[写入向量库并更新记录]
+        R4 -->|删除/失效| R6[自动清理旧分块]
+        R4 -->|未变动| R7
+        R5 --> R7
+        R6 --> R7
     end
 
-    R5 --> C1
+    R7 --> C1
     
     subgraph Phase3 [三、处理对话与命令]
         C1{接收对话/命令}

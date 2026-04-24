@@ -212,3 +212,5 @@ logs/
 # Data cache files
 .sync_state.json
 record_manager_cache.sql
+# 数据目录
+data/

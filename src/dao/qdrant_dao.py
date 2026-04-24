@@ -15,6 +15,7 @@ from config.settings import (
     QDRANT_PORT,
 )
 from dao.base import VectorStoreDAO
+from utils.hash import generate_content_hash_id
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,7 @@ class QdrantDAO(VectorStoreDAO):
             vs,
             cleanup="incremental",
             source_id_key="source",
+            key_encoder=generate_content_hash_id,
         )
         
         logger.info(
