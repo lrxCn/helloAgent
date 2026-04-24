@@ -35,25 +35,12 @@ class QdrantDAO(VectorStoreDAO):
     def store_documents(
         self, docs: list[Document], collection_name: str
     ) -> None:
-        """将文档向量化并存入 Qdrant（自动去重）。
+        """将文档向量化并存入 Qdrant（使用 LangChain Indexing API 实现增量去重）。"""
+        from langchain_core.indexing import index
+        from dao import get_record_manager
 
-        去重策略（双保险）：
-        1. 按来源文件删旧：同一文件重新加载时，先删除旧版本的所有 chunk
-        2. 内容哈希 ID：完全相同的内容不会重复存储
-        """
-        import hashlib
-
-        # ─── 按来源删旧（处理"改了一点点"的情况） ───
-        sources = {doc.metadata.get("source") for doc in docs if doc.metadata.get("source")}
-        if self.collection_exists(collection_name):
-            for source in sources:
-                self.delete_by_source(source, collection_name)
-
-        # 为每个文档生成确定性 ID（相同内容 → 相同 ID → 覆盖）
-        ids = [
-            hashlib.md5(doc.page_content.encode()).hexdigest()
-            for doc in docs
-        ]
+        if not docs:
+            return
 
         # 如果 collection 不存在，先创建空的
         if not self.collection_exists(collection_name):
@@ -68,10 +55,26 @@ class QdrantDAO(VectorStoreDAO):
             )
             logger.info(f"📁 已创建集合 [{collection_name}] (dim={dim})")
 
-        # 用 add_documents + ids 入库（upsert 语义）
         vs = self._get_vectorstore(collection_name)
-        vs.add_documents(docs, ids=ids)
-        logger.info(f"📦 已存入 {len(docs)} 个文档块到 [{collection_name}]（去重模式）")
+        record_manager = get_record_manager(f"qdrant/{collection_name}")
+        
+        # 使用 Indexing API 进行同步
+        # cleanup="incremental" 会自动对比 source_id_key，删除旧段落、加入新段落、跳过未改动段落
+        index_result = index(
+            docs,
+            record_manager,
+            vs,
+            cleanup="incremental",
+            source_id_key="source",
+        )
+        
+        logger.info(
+            f"📦 增量同步完成 [{collection_name}]: "
+            f"新增 {index_result['num_added']}, "
+            f"更新 {index_result['num_updated']}, "
+            f"跳过 {index_result['num_skipped']}, "
+            f"删除 {index_result['num_deleted']}"
+        )
 
     def search(
         self, query: str, collection_name: str, top_k: int = 4

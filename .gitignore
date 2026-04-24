@@ -208,3 +208,7 @@ __marimo__/
 
 # 项目日志
 logs/
+
+# Data cache files
+.sync_state.json
+record_manager_cache.sql

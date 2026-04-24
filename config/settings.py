@@ -11,9 +11,10 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = PROJECT_ROOT / "logs"
 DATA_DIR = PROJECT_ROOT / "data"
+SYNC_STATE_FILE_NAME = os.getenv("SYNC_STATE_FILE_NAME", ".sync_state.json")
 
 # ─── 日志 ───
-LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "1"))
+LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "2"))
 
 # ─── 向量数据库 ───
 VECTOR_DB_TYPE = os.getenv("VECTOR_DB_TYPE", "qdrant")

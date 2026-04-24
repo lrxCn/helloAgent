@@ -12,6 +12,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from config.settings import DATA_DIR
 from utils.logger import log_function
+from utils.file_state import FileStateManager
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +78,36 @@ def load_all_txt(
 
     logger.info(f"📂 扫描到 {len(txt_files)} 个 txt 文件: {[f.name for f in txt_files]}")
 
+    # --- 文件级增量拦截逻辑 ---
+    state_manager = FileStateManager(data_dir)
+    sync_state = state_manager.load()
+
     all_chunks = []
+    new_sync_state = {}
+    skipped_files = 0
+
     for file_path in txt_files:
         try:
+            mtime = file_path.stat().st_mtime
+            file_key = file_path.name
+            new_sync_state[file_key] = mtime
+            
+            # 如果文件未修改过，直接跳过本地加载和切分
+            if file_key in sync_state and sync_state[file_key] == mtime:
+                skipped_files += 1
+                continue
+
             chunks = load_and_split(str(file_path), chunk_size, chunk_overlap)
             all_chunks.extend(chunks)
         except Exception as e:
             logger.error(f"加载文件失败 [{file_path.name}]: {e}")
 
-    logger.info(f"📚 全部加载完成: {len(txt_files)} 个文件 → {len(all_chunks)} 个文档块")
+    # 保存最新状态
+    state_manager.save(new_sync_state)
+
+    logger.info(
+        f"📚 本地加载完成: 共 {len(txt_files)} 个文件, "
+        f"跳过未修改 {skipped_files} 个, "
+        f"新增/更新切分 {len(all_chunks)} 个文档块"
+    )
     return all_chunks

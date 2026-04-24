@@ -23,3 +23,23 @@ def get_dao() -> VectorStoreDAO:
         f"不支持的向量数据库类型: '{VECTOR_DB_TYPE}'。"
         f"请在 .env 中设置 VECTOR_DB_TYPE=qdrant"
     )
+
+
+def get_record_manager(namespace: str):
+    """获取文档增量同步状态管理器。
+    
+    使用 SQLRecordManager 在本地记录哪些 Chunk 已经处理过，
+    从而避免将相同的文本反复发送给 OpenAI API，节省 Token 费用。
+    """
+    from langchain_community.indexes._sql_record_manager import SQLRecordManager
+    from config.settings import DATA_DIR
+    
+    # 默认使用 sqlite 在 data 目录下存储同步记录
+    db_url = f"sqlite:///{DATA_DIR}/record_manager_cache.sql"
+    record_manager = SQLRecordManager(
+        namespace=namespace,
+        db_url=db_url,
+    )
+    # 初始化表结构
+    record_manager.create_schema()
+    return record_manager

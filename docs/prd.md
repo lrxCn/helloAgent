@@ -89,3 +89,25 @@
 | Phase 3 | RAG 问答：Embedding + Qdrant + 检索链 | 1 天 |
 | Phase 4 | 多轮对话记忆 | 0.5 天 |
 | Phase 5 | 文档摘要（可选） | 0.5 天 |
+
+---
+
+## 7. 长期规划 (工业级架构演进方向)
+
+虽然本项目定位于小作坊式的本地学习和辅助工具，但随着业务的拓展和需求升级，未来将考虑逐步向工业级架构演进，具体规划如下：
+
+### 7.1 事件驱动与异步架构 (Event-driven Architecture)
+- **现状**：每次启动时同步扫描本地目录并阻塞执行全量文档的切分和向量化。
+- **演进**：引入消息队列（如 Redis/RabbitMQ/Kafka）和 Webhook。支持用户前端上传文件后，生成异步任务处理文档，后台 Worker 集群按队列消费任务（包括重试、状态追踪、死信队列等），主程序不再被阻塞。
+
+### 7.2 智能文档解析 (Advanced ETL & Parsing)
+- **现状**：单纯的 `TextLoader` 处理，强行按字符和换行符切分，不关注原始文档的结构（如段落、表格、图表）。
+- **演进**：集成专业非结构化数据解析工具（如 Unstructured.io）。实现基于语义块（Semantic Chunking）的切分，保留层级结构（Heading、Paragraph）、表格数据提取、以及可能的 OCR 图像提取。
+
+### 7.3 多租户向量隔离 (Vector Multi-tenancy & Isolation)
+- **现状**：所有文档存放在同一个大 Collection（表）中。
+- **演进**：在向量库中通过 Metadata 支持 `tenant_id` 或 `user_id`，在存入和检索时强制附加权限过滤（Filter），实现不同用户知识库的安全隔离，或者为不同租户分配独立的 Collection。
+
+### 7.4 分布式缓存与增量去重
+- **现状**：依赖本地 SQLite（`SQLRecordManager`）结合本地文件系统的 `mtime` 完成单机的增量去重。
+- **演进**：将文档级和 Chunk 级的去重缓存上报至分布式 Redis 或 PostgreSQL 数据库，以支持分布式的多机部署和更复杂的版本回退（Versioning）管理。

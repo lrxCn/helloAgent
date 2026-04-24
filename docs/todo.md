@@ -1,18 +1,5 @@
-# TODO: 下个版本优化文档加载流程
+# 项目优化清单 (TODO)
 
-在下个版本中，我们将实施**方案三（LangChain Indexing API / RecordManager）**来优化 `loader.py` 的加载和向量化逻辑。
-
-## 存在的问题
-当前在 `src/main.py` 启动时，`loader.py` 中的 `load_all_txt()` 会盲目地将 `data` 目录下的所有 txt 文件全部重新读取和切分。接着，虽然 `QdrantDAO.store_documents` 在插入前会删除旧数据，但仍然会对所有文本块（包括毫无变化的内容）重新调用 OpenAI API 计算 Embedding。
-这不仅浪费了本地加载和切分的时间，还**白白消耗了昂贵的 OpenAI API Token 费用**。
-
-## 实施方案三（LangChain Indexing API）
-引入 LangChain 原生的 `SQLRecordManager`。它专门用于管理文档索引的同步状态：
-1. 会在本地建立一个小型的 SQLite 数据库来记录每个文档（Chunk）的内容哈希。
-2. 在更新向量库时，自动识别出哪些文件被修改了、哪些是新增的、哪些被删除了。
-3. 只有发生变化的文档块，才会发送给 OpenAI 重新计算 Embedding，从而彻底解决资源和费用的浪费问题。
-
----
 
 ## 待精简与重构的部分 (Refactoring & Streamlining)
 
