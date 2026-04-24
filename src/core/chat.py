@@ -1,11 +1,4 @@
-"""AI 问答模块 — 使用 LangChain 的 ChatModel + PromptTemplate + LCEL。
-
-这是 LangChain 最核心的能力：
-1. ChatOpenAI — 统一的 LLM 调用接口
-2. ChatPromptTemplate — 构建提示词模板
-3. LCEL（管道符 |）— 把组件串成链
-4. StrOutputParser — 解析输出为纯文本
-"""
+"""AI 问答模块 — 智能 RAG。"""
 
 import logging
 
@@ -13,43 +6,110 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
-from config.settings import OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, SYSTEM_PROMPT
+from config.settings import (
+    OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, SYSTEM_PROMPT,
+    RAG_TOP_K, RAG_RECALL_K, COLLECTION_NAME,
+)
+from core.loader import load_all_txt
+from core.reranker import rerank
+from dao import get_dao
 
 logger = logging.getLogger(__name__)
 
 
-def build_chat_chain():
-    """构建基础问答链。
+class SmartAgent:
+    """智能问答代理，自动管理知识库检索与模式切换。"""
 
-    LCEL 写法：prompt | llm | parser
-    数据流：用户输入 → 填入模板 → 发给 LLM → 解析输出 → 返回字符串
-    """
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        ("human", "{question}"),
-    ])
+    def __init__(self):
+        # 1. 初始化基础依赖
+        self.dao = get_dao()
+        self.llm = ChatOpenAI(
+            model=OPENAI_MODEL_NAME,
+            base_url=OPENAI_BASE_URL,
+            api_key=OPENAI_API_KEY,
+        )
+        
+        # 2. 构建处理链
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", SYSTEM_PROMPT),
+            ("human", "{user_input}"),
+        ])
+        self.chain = prompt | self.llm | StrOutputParser()
 
-    llm = ChatOpenAI(
-        model=OPENAI_MODEL_NAME,
-        base_url=OPENAI_BASE_URL,
-        api_key=OPENAI_API_KEY,
-    )
+        logger.info(f"💬 问答链已构建 (model={OPENAI_MODEL_NAME})")
 
-    parser = StrOutputParser()
 
-    # LCEL 管道：这就是 LangChain 最优雅的地方
-    chain = prompt | llm | parser
 
-    logger.info(f"💬 问答链已构建 (model={OPENAI_MODEL_NAME})")
-    return chain
+    def sync_knowledge_base(self) -> bool:
+        """加载数据目录并同步到向量数据库。"""
+        print("📂 正在扫描并加载数据目录下的文档...")
+        try:
+            chunks = load_all_txt()
+            if not chunks:
+                logger.warning("没有找到可加载的文档")
+                return False
+            self.dao.store_documents(chunks, COLLECTION_NAME)
+            print("✅ 文档加载完成，已就绪")
+            return True
+        except Exception as e:
+            logger.error(f"文档加载失败: {e}")
+            print("❌ 文档加载失败")
+            return False
+
+    def get_relevant_docs(self, question: str) -> list:
+        """检索并重排序相关文档。"""
+        if not self.dao.collection_exists(COLLECTION_NAME):
+            return []
+
+        try:
+            # 粗筛
+            candidates = self.dao.search_with_scores(
+                question, COLLECTION_NAME, top_k=RAG_RECALL_K
+            )
+            raw_docs = [doc for doc, score in candidates]
+            
+            if not raw_docs:
+                return []
+
+            # 精排
+            reranked = rerank(question, raw_docs, top_n=RAG_TOP_K)
+            return [doc for doc, score in reranked]
+        except Exception as e:
+            logger.warning(f"检索/Rerank 失败，降级为普通问答: {e}")
+            return []
+
+    def answer(self, question: str) -> str:
+        """核心问答逻辑：动态组装输入。"""
+        docs = self.get_relevant_docs(question)
+        
+        if docs:
+            context_parts = []
+            for d in docs:
+                source = d.metadata.get("source", "未知文档")
+                context_parts.append(f"[来源：{source}]\n{d.page_content}")
+                
+            context = "\n\n---\n\n".join(context_parts)
+            user_input = f"【参考资料】\n{context}\n\n我的问题是：{question}"
+            logger.info(f"📚 RAG 模式回答 (参考了 {len(docs)} 篇文档)")
+        else:
+            user_input = question
+            logger.info("💬 普通模式回答（未找到相关文档）")
+            
+        return self.chain.invoke({"user_input": user_input})
 
 
 def chat_loop():
-    """交互式问答循环。"""
-    chain = build_chat_chain()
+    """交互式问答主循环。"""
+    agent = SmartAgent()
+
+    # 启动时自动同步知识库
+    if not agent.sync_knowledge_base():
+        print("⚠️  未加载到新文档，将使用已有知识库")
 
     print("\n" + "=" * 50)
-    print("  💬 AI 问答助手（输入 /quit 退出）")
+    print("  💬 AI 智能问答助手")
+    print("  命令: /quit")
+    print("  每次提问自动判断是否基于文档回答")
     print("=" * 50 + "\n")
 
     while True:
@@ -58,16 +118,15 @@ def chat_loop():
         except (KeyboardInterrupt, EOFError):
             print("\n👋 再见！")
             break
+        except UnicodeDecodeError:
+            print("⚠️  输入编码异常，请重新输入")
+            continue
 
         if not question:
             continue
+
         if question == "/quit":
             print("👋 再见！")
             break
 
-        logger.debug(f"用户提问: {question}")
-
-        # 调用链
-        answer = chain.invoke({"question": question})
-        print(f"AI: {answer}\n")
-        logger.debug(f"AI 回答: {answer[:100]}...")
+        print(f"AI: {agent.answer(question)}\n")

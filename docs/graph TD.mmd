@@ -1,0 +1,17 @@
+graph TD
+    %% 文档处理流
+    A[本地文档数据] -->|loader.py| B[文档加载与切分]
+    B -->|OpenAI Embeddings| C[(Qdrant 向量数据库)]
+
+    %% 问答检索流
+    D[用户提问] -->|QdrantDAO| E[向量粗排检索]
+    C --> E
+    E -->|reranker.py| F[BGE 交叉编码器精排]
+    F --> G[组装上下文 Prompt]
+    D --> G
+    G -->|chat.py| H[LLM 大语言模型]
+    H --> I[生成最终回答]
+
+    %% 给数据库加一点样式
+    classDef database fill:#f9f,stroke:#333,stroke-width:2px;
+    class C database;

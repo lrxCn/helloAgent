@@ -10,6 +10,7 @@ load_dotenv()
 # ─── 项目路径 ───
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOG_DIR = PROJECT_ROOT / "logs"
+DATA_DIR = PROJECT_ROOT / "data"
 
 # ─── 日志 ───
 LOG_RETENTION_DAYS = int(os.getenv("LOG_RETENTION_DAYS", "1"))
@@ -27,8 +28,21 @@ OPENAI_MODEL_NAME = os.getenv("OPENAI_MODEL_NAME", "")
 # ─── Embedding ───
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
+# ─── Rerank ───
+RERANK_MODEL = os.getenv("RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
+RELEVANCE_THRESHOLD = float(os.getenv("RELEVANCE_THRESHOLD", "0.35"))
+
+# ─── RAG ───
+RAG_TOP_K = int(os.getenv("RAG_TOP_K", "3"))           # 最终喂给 LLM 的文档数
+RAG_RECALL_K = int(os.getenv("RAG_RECALL_K", "10"))     # 向量检索粗筛数量
+
 # ─── Prompt ───
 SYSTEM_PROMPT = os.getenv(
     "SYSTEM_PROMPT",
-    "你是一个有帮助的 AI 助手，请用中文回答用户的问题。回答要简洁清晰。",
+    "你是一个智能 AI 助手，请用中文简洁清晰地回答用户的问题。\n"
+    "当用户的提问中包含【参考资料】时，请你优先基于参考资料进行回答，并在回答中明确指出参考了哪篇文档（来源）。\n"
+    "如果参考资料无法完全解答该问题，或者没有提供参考资料，请结合你自身的知识来回答。"
 )
+
+# ─── 知识库 ───
+COLLECTION_NAME = os.getenv("COLLECTION_NAME", "reading_notes")

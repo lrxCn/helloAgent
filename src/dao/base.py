@@ -39,6 +39,21 @@ class VectorStoreDAO(ABC):
         """
 
     @abstractmethod
+    def search_with_scores(
+        self, query: str, collection_name: str, top_k: int = 10
+    ) -> list[tuple[Document, float]]:
+        """检索最相关的文档块，同时返回相关度分数。
+
+        Args:
+            query: 用户查询文本。
+            collection_name: 集合名称。
+            top_k: 返回的文档数量。
+
+        Returns:
+            (Document, score) 元组列表，score 范围 [0, 1]，1 最相关。
+        """
+
+    @abstractmethod
     def get_retriever(self, collection_name: str, top_k: int = 4):
         """获取 LangChain 检索器，用于接入 Chain。
 
@@ -61,3 +76,15 @@ class VectorStoreDAO(ABC):
     @abstractmethod
     def collection_exists(self, collection_name: str) -> bool:
         """检查集合是否存在。"""
+
+    @abstractmethod
+    def delete_by_source(self, source: str, collection_name: str) -> int:
+        """删除指定来源文件的所有文档。
+
+        Args:
+            source: 来源文件路径（存储在 metadata.source 中）。
+            collection_name: 集合名称。
+
+        Returns:
+            删除的文档数量。
+        """
