@@ -26,12 +26,26 @@ class QdrantDAO(VectorStoreDAO):
     def __init__(self):
         self.client = QdrantClient(QDRANT_HOST, port=QDRANT_PORT)
         self.url = f"http://{QDRANT_HOST}:{QDRANT_PORT}"
+        
+        # 立即检查连接性
+        try:
+            self.client.get_collections()
+        except Exception as e:
+            logger.error(f"无法连接到 Qdrant: {e}")
+            raise ConnectionError(
+                f"\n{'!'*50}\n"
+                f"❌ 无法连接到 Qdrant 向量数据库！\n"
+                f"地址: {self.url}\n"
+                f"原因: 请确保 Qdrant 服务已启动 (例如运行: docker compose up -d)\n"
+                f"{'!'*50}\n"
+            )
+
         self.embeddings = OpenAIEmbeddings(
             model=EMBEDDING_MODEL,
             base_url=OPENAI_BASE_URL,
             api_key=OPENAI_API_KEY,
         )
-        logger.debug(f"QdrantDAO 初始化: {self.url}, embedding={EMBEDDING_MODEL}")
+        logger.debug(f"QdrantDAO 初始化成功: {self.url}, embedding={EMBEDDING_MODEL}")
 
     def store_documents(
         self, docs: list[Document], collection_name: str

@@ -5,6 +5,7 @@ import logging
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from prompt_toolkit import prompt
 
 from config.settings import (
     OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, SYSTEM_PROMPT,
@@ -22,7 +23,13 @@ class SmartAgent:
 
     def __init__(self):
         # 1. 初始化基础依赖
-        self.dao = get_dao()
+        try:
+            self.dao = get_dao()
+        except (ConnectionError, ValueError) as e:
+            print(e)
+            import sys
+            sys.exit(1)
+
         self.llm = ChatOpenAI(
             model=OPENAI_MODEL_NAME,
             base_url=OPENAI_BASE_URL,
@@ -114,13 +121,11 @@ def chat_loop():
 
     while True:
         try:
-            question = input("你: ").strip()
+            # 使用 prompt_toolkit 解决 macOS 终端中文输入与删除的编码问题
+            question = prompt("你: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\n👋 再见！")
             break
-        except UnicodeDecodeError:
-            print("⚠️  输入编码异常，请重新输入")
-            continue
 
         if not question:
             continue

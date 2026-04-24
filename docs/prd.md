@@ -110,4 +110,15 @@
 
 ### 7.4 分布式缓存与增量去重
 - **现状**：依赖本地 SQLite（`SQLRecordManager`）结合本地文件系统的 `mtime` 完成单机的增量去重。
-- **演进**：将文档级和 Chunk 级的去重缓存上报至分布式 Redis 或 PostgreSQL 数据库，以支持分布式的多机部署和更复杂的版本回退（Versioning）管理。
+### 7.5 分层记忆架构 (Multi-layer Memory Architecture)
+
+- **现状**：目前计划使用简单的对话缓存（如 `ConversationBufferMemory`），记忆随程序重启丢失，且长对话会导致 Token 消耗激增。
+- **演进**：构建“三层记忆模型”，平衡时序逻辑、Token 成本与长效存储：
+    1.  **短期上下文 (SQL Layer)**：使用 SQLite/Redis 存储最近 N 轮（如 5-10 轮）的原始对话原文。确保 AI 能够精准理解当下的指代（如“它”、“刚才那个”）和对话时序。
+    2.  **中期摘要 (Summary Layer)**：当对话超过窗口上限时，调用 LLM 对最早的几轮对话进行“滚动压缩（Summarization）”。将摘要结果持久化并作为上下文背景，在节省 Token 的同时保留关键意图。
+    3.  **长期归档 (Vector Layer)**：将更久远的、被摘要替换掉的原始对话片段进行 Embedding 向量化，存入 Qdrant 的独立集合（如 `user_memories`）。当用户提到很久以前的事情时，通过语义检索按需找回相关细节。
+
+#### 实施步骤建议：
+1.  **第一步：持久化存储**。引入 `SQLChatMessageHistory`，将对话记录存入本地 SQLite，实现跨会话记忆。
+2.  **第二步：滑动窗口与摘要生成**。实现监控逻辑，当消息数达阈值时，自动提取老旧消息生成 Summary 并更新 Context 模板。
+3.  **第三步：记忆向量化沉淀**。将废弃的原始消息归档至向量数据库，配合 `Condense Question` 链实现“记忆召回”。
