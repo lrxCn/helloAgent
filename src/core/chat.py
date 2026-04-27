@@ -2,6 +2,7 @@
 
 import logging
 
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -13,6 +14,7 @@ from config.settings import (
 )
 from core.loader import load_all_txt
 from core.reranker import rerank
+from core.memory import MultiLayerMemory
 from dao import get_dao
 
 logger = logging.getLogger(__name__)
@@ -36,16 +38,20 @@ class SmartAgent:
             api_key=OPENAI_API_KEY,
         )
         
-        # 2. 构建处理链
-        prompt = ChatPromptTemplate.from_messages([
-            ("system", SYSTEM_PROMPT),
-            ("human", "{user_input}"),
-        ])
-        self.chain = prompt | self.llm | StrOutputParser()
+        # 2. 初始化记忆系统
+        self.memory = MultiLayerMemory()
 
-        logger.info(f"💬 问答链已构建 (model={OPENAI_MODEL_NAME})")
-
-
+        # 3. 构建处理链
+        # 注意：这里我们手动组装 Prompt，因为逻辑变复杂了
+        self.system_prompt_template = (
+            "{base_system_prompt}\n\n"
+            "--- 记忆上下文 ---\n"
+            "【历史摘要】：\n{summary}\n\n"
+            "【相关历史片段】：\n{long_term_memory}\n"
+            "------------------\n"
+        )
+        
+        logger.info(f"💬 问答链已构建 (model={OPENAI_MODEL_NAME}, memory=MultiLayer)")
 
     def sync_knowledge_base(self) -> bool:
         """加载数据目录并同步到向量数据库。"""
@@ -86,23 +92,57 @@ class SmartAgent:
             return []
 
     def answer(self, question: str) -> str:
-        """核心问答逻辑：动态组装输入。"""
+        """核心问答逻辑：动态组装记忆、知识库并调用 LLM。"""
+        # 1. 检索知识库 (RAG)
         docs = self.get_relevant_docs(question)
-        
+        context = ""
         if docs:
             context_parts = []
             for d in docs:
                 source = d.metadata.get("source", "未知文档")
                 context_parts.append(f"[来源：{source}]\n{d.page_content}")
-                
             context = "\n\n---\n\n".join(context_parts)
-            user_input = f"【参考资料】\n{context}\n\n我的问题是：{question}"
             logger.info(f"📚 RAG 模式回答 (参考了 {len(docs)} 篇文档)")
-        else:
-            user_input = question
-            logger.info("💬 普通模式回答（未找到相关文档）")
-            
-        return self.chain.invoke({"user_input": user_input})
+
+        # 2. 获取分层记忆
+        summary = self.memory.get_mid_term_summary()
+        long_term = self.memory.get_long_term_memories(question)
+        short_term = self.memory.get_short_term_messages()
+
+        # 打印记忆状态
+        # print(f"🧠 [记忆状态] 短期: {short_term} 条消息 | 中期摘要: {summary} | 长期相关片段: {long_term}")
+
+        # 3. 组装输入
+        final_system_prompt = self.system_prompt_template.format(
+            base_system_prompt=SYSTEM_PROMPT,
+            summary=summary if summary else "（暂无相关摘要）",
+            long_term_memory=long_term if long_term else "（暂无相关历史片段）"
+        )
+
+        messages = [("system", final_system_prompt)]
+        # 加入短期对话历史
+        for m in short_term:
+            role = "human" if isinstance(m, HumanMessage) else "ai"
+            messages.append((role, m.content))
+        
+        # 加入当前用户问题
+        user_content = question
+        if context:
+            user_content = f"【参考资料】\n{context}\n\n我的问题是：{question}"
+        
+        messages.append(("human", user_content))
+
+        # 4. 调用 LLM
+        prompt = ChatPromptTemplate.from_messages(messages)
+        chain = prompt | self.llm | StrOutputParser()
+        
+        response = chain.invoke({})
+
+        # 5. 持久化当前轮次到记忆系统
+        self.memory.add_message(HumanMessage(content=question))
+        self.memory.add_message(AIMessage(content=response))
+
+        return response
 
 
 def chat_loop():
@@ -115,7 +155,12 @@ def chat_loop():
 
     print("\n" + "=" * 50)
     print("  💬 AI 智能问答助手")
-    print("  命令: /quit")
+    print("  基础命令: /quit")
+    print("  记忆管理: /m, /mem, /memory")
+    print("    -s, -short  [ -d ]  查看/删除短期记忆 (SQL)")
+    print("    -m, -middle [ -d ]  查看/删除中期摘要 (Summary)")
+    print("    -l, -long   [ -d ]  查看/删除长期记忆 (Vector)")
+    print("    -d, -delete         删除全部分层记忆")
     print("  每次提问自动判断是否基于文档回答")
     print("=" * 50 + "\n")
 
@@ -133,5 +178,58 @@ def chat_loop():
         if question == "/quit":
             print("👋 再见！")
             break
+
+        # 处理记忆查询与管理命令
+        if question.startswith(("/m", "/mem", "/memory")):
+            parts = question.split()
+            args = [a.lower() for a in parts[1:]]
+            
+            if not args:
+                print("💡 用法: /m [-s|-m|-l] [-d]")
+                continue
+            
+            # 1. 处理全量删除: /m -d
+            if len(args) == 1 and args[0] in ("-d", "-delete"):
+                agent.memory.clear_all()
+                print("🧹 已成功清空当前会话的所有记忆（短/中/长期）。")
+                continue
+
+            # 2. 处理分层逻辑
+            flag = args[0]
+            is_delete = "-d" in args or "-delete" in args
+
+            if flag in ("-s", "-short"):
+                if is_delete:
+                    agent.memory.clear_short_term()
+                    print("🧹 已清空短期记忆。")
+                else:
+                    msgs = agent.memory.get_short_term_messages()
+                    print(f"\n🧠 [短期记忆 - 最近 {len(msgs)} 条]")
+                    for m in msgs:
+                        role = "用户" if isinstance(m, HumanMessage) else "AI"
+                        print(f"  {role}: {m.content}")
+            elif flag in ("-m", "-middle"):
+                if is_delete:
+                    agent.memory.clear_mid_term()
+                    print("🧹 已清空中期摘要。")
+                else:
+                    summary = agent.memory.get_mid_term_summary()
+                    print(f"\n🧠 [中期摘要]")
+                    print(f"  {summary if summary else '（暂无摘要）'}")
+            elif flag in ("-l", "-long"):
+                if is_delete:
+                    agent.memory.clear_long_term()
+                    print("🧹 已清空长期记忆。")
+                else:
+                    # 长期记忆检索需要 query
+                    query = " ".join([a for a in args[1:] if not a.startswith("-")])
+                    if not query: query = "重要对话记录"
+                    memories = agent.memory.get_long_term_memories(query, k=5)
+                    print(f"\n🧠 [长期记忆 - 检索词: '{query}']")
+                    print(f"  {memories if memories else '（未检索到相关内容）'}")
+            else:
+                print(f"❌ 未知参数: {flag}")
+            print()
+            continue
 
         print(f"AI: {agent.answer(question)}\n")

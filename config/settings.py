@@ -47,3 +47,8 @@ SYSTEM_PROMPT = os.getenv(
 
 # ─── 知识库 ───
 COLLECTION_NAME = os.getenv("COLLECTION_NAME", "reading_notes")
+
+# ─── 记忆系统 ───
+MEMORY_DB_PATH = str(DATA_DIR / "memory.db")
+MEMORY_WINDOW_SIZE = int(os.getenv("MEMORY_WINDOW_SIZE", "10"))
+MEMORY_COLLECTION_NAME = os.getenv("MEMORY_COLLECTION_NAME", "user_memories")

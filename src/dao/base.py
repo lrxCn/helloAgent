@@ -25,7 +25,7 @@ class VectorStoreDAO(ABC):
 
     @abstractmethod
     def search(
-        self, query: str, collection_name: str, top_k: int = 4
+        self, query: str, collection_name: str, top_k: int = 4, filter: dict = None
     ) -> list[Document]:
         """根据查询文本检索最相关的文档块。
 
@@ -33,6 +33,7 @@ class VectorStoreDAO(ABC):
             query: 用户查询文本。
             collection_name: 集合名称。
             top_k: 返回的最相关文档数量。
+            filter: 过滤条件字典。
 
         Returns:
             相关 Document 列表。
@@ -83,6 +84,18 @@ class VectorStoreDAO(ABC):
 
         Args:
             source: 来源文件路径（存储在 metadata.source 中）。
+            collection_name: 集合名称。
+
+        Returns:
+            删除的文档数量。
+        """
+
+    @abstractmethod
+    def delete_by_session(self, session_id: str, collection_name: str) -> int:
+        """删除指定会话的所有文档。
+
+        Args:
+            session_id: 会话 ID。
             collection_name: 集合名称。
 
         Returns:

@@ -93,12 +93,25 @@ class QdrantDAO(VectorStoreDAO):
         )
 
     def search(
-        self, query: str, collection_name: str, top_k: int = 4
+        self, query: str, collection_name: str, top_k: int = 4, filter: dict = None
     ) -> list[Document]:
         """从 Qdrant 检索最相关的文档块。"""
         vs = self._get_vectorstore(collection_name)
-        results = vs.similarity_search(query, k=top_k)
-        logger.debug(f"🔍 检索 [{collection_name}] query='{query[:30]}...' top_k={top_k} → {len(results)} 条结果")
+        
+        # 处理 Qdrant 过滤条件
+        qdrant_filter = None
+        if filter:
+            from qdrant_client.models import Filter, FieldCondition, MatchValue
+            must_conditions = []
+            for key, value in filter.items():
+                must_conditions.append(
+                    FieldCondition(key=f"metadata.{key}", match=MatchValue(value=value))
+                )
+            if must_conditions:
+                qdrant_filter = Filter(must=must_conditions)
+        
+        results = vs.similarity_search(query, k=top_k, filter=qdrant_filter)
+        logger.debug(f"🔍 检索 [{collection_name}] query='{query[:30]}...' filter={filter} top_k={top_k} → {len(results)} 条结果")
         return results
 
     def search_with_scores(
@@ -156,6 +169,33 @@ class QdrantDAO(VectorStoreDAO):
                 ),
             )
             logger.info(f"🗑️  已删除来源 [{source}] 的 {count} 条文档")
+
+        return count
+
+    def delete_by_session(self, session_id: str, collection_name: str) -> int:
+        """删除指定会话的所有文档。"""
+        from qdrant_client.models import Filter, FieldCondition, MatchValue
+
+        if not self.collection_exists(collection_name):
+            return 0
+
+        # 先查出有多少条
+        count_result = self.client.count(
+            collection_name=collection_name,
+            count_filter=Filter(
+                must=[FieldCondition(key="metadata.session_id", match=MatchValue(value=session_id))]
+            ),
+        )
+        count = count_result.count
+
+        if count > 0:
+            self.client.delete(
+                collection_name=collection_name,
+                points_selector=Filter(
+                    must=[FieldCondition(key="metadata.session_id", match=MatchValue(value=session_id))]
+                ),
+            )
+            logger.info(f"🗑️  已从 [{collection_name}] 中删除会话 [{session_id}] 的 {count} 条记录")
 
         return count
 
