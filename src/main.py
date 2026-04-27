@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     setup_logging()
-    logger.info("🚀 AI 读书笔记助手启动")
+    logger.info("🚀 AI Agent Launch!")
     
     # 1. 依赖注入：在入口处初始化全局共享的实例，避免重复创建连接
     dao = get_dao()

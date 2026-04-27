@@ -41,7 +41,7 @@ class SmartAgent:
         )
         
         # 2. 初始化记忆系统
-        self.memory = MultiLayerMemory()
+        self.memory = MultiLayerMemory(dao=self.dao, llm=self.llm)
 
         # 3. 构建处理链
         # 注意：这里我们手动组装 Prompt，因为逻辑变复杂了

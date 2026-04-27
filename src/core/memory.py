@@ -32,7 +32,7 @@ class MultiLayerMemory:
     3. Vector Layer: 长期对话归档 (Qdrant)
     """
 
-    def __init__(self, session_id: str = "default_session"):
+    def __init__(self, session_id: str = "default_session", dao=None, llm=None):
         self.session_id = session_id
         self.db_url = f"sqlite:///{MEMORY_DB_PATH}"
         
@@ -48,8 +48,8 @@ class MultiLayerMemory:
         self.Session = sessionmaker(bind=self.engine)
         
         # 3. 初始化 LLM 和 DAO
-        self.dao = get_dao()
-        self.llm = ChatOpenAI(
+        self.dao = dao or get_dao()
+        self.llm = llm or ChatOpenAI(
             model=OPENAI_MODEL_NAME,
             base_url=OPENAI_BASE_URL,
             api_key=OPENAI_API_KEY,
