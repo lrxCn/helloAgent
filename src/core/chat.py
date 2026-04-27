@@ -4,7 +4,8 @@ import logging
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate, PromptTemplate, MessagesPlaceholder
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 from langchain_openai import ChatOpenAI
 from prompt_toolkit import prompt
 
@@ -13,7 +14,8 @@ from config.settings import (
     RAG_TOP_K, RAG_RECALL_K, COLLECTION_NAME,
 )
 from core.loader import load_all_txt
-from core.reranker import rerank
+from core.reranker import BGERerankCompressor
+from langchain_classic.retrievers import ContextualCompressionRetriever
 from core.memory import MultiLayerMemory
 from dao import get_dao
 
@@ -23,16 +25,16 @@ logger = logging.getLogger(__name__)
 class SmartAgent:
     """智能问答代理，自动管理知识库检索与模式切换。"""
 
-    def __init__(self):
+    def __init__(self, dao=None, llm=None):
         # 1. 初始化基础依赖
         try:
-            self.dao = get_dao()
+            self.dao = dao or get_dao()
         except (ConnectionError, ValueError) as e:
             print(e)
             import sys
             sys.exit(1)
 
-        self.llm = ChatOpenAI(
+        self.llm = llm or ChatOpenAI(
             model=OPENAI_MODEL_NAME,
             base_url=OPENAI_BASE_URL,
             api_key=OPENAI_API_KEY,
@@ -75,18 +77,21 @@ class SmartAgent:
             return []
 
         try:
-            # 粗筛
-            candidates = self.dao.search_with_scores(
-                question, COLLECTION_NAME, top_k=RAG_RECALL_K
-            )
-            raw_docs = [doc for doc, score in candidates]
+            # 1. 获取基础检索器 (粗排)
+            base_retriever = self.dao.get_retriever(collection_name=COLLECTION_NAME, top_k=RAG_RECALL_K)
             
-            if not raw_docs:
-                return []
+            # 2. 获取压缩器 (精排)
+            compressor = BGERerankCompressor(top_n=RAG_TOP_K)
+            
+            # 3. 组合成上下文压缩检索器
+            compression_retriever = ContextualCompressionRetriever(
+                base_compressor=compressor,
+                base_retriever=base_retriever
+            )
+            
+            # 4. 执行检索并自动完成粗排+精排
+            return compression_retriever.invoke(question)
 
-            # 精排
-            reranked = rerank(question, raw_docs, top_n=RAG_TOP_K)
-            return [doc for doc, score in reranked]
         except Exception as e:
             logger.warning(f"检索/Rerank 失败，降级为普通问答: {e}")
             return []
@@ -95,13 +100,7 @@ class SmartAgent:
         """核心问答逻辑：动态组装记忆、知识库并调用 LLM。"""
         # 1. 检索知识库 (RAG)
         docs = self.get_relevant_docs(question)
-        context = ""
         if docs:
-            context_parts = []
-            for d in docs:
-                source = d.metadata.get("source", "未知文档")
-                context_parts.append(f"[来源：{source}]\n{d.page_content}")
-            context = "\n\n---\n\n".join(context_parts)
             logger.info(f"📚 RAG 模式回答 (参考了 {len(docs)} 篇文档)")
 
         # 2. 获取分层记忆
@@ -109,34 +108,53 @@ class SmartAgent:
         long_term = self.memory.get_long_term_memories(question)
         short_term = self.memory.get_short_term_messages()
 
-        # 打印记忆状态
-        # print(f"🧠 [记忆状态] 短期: {short_term} 条消息 | 中期摘要: {summary} | 长期相关片段: {long_term}")
-
-        # 3. 组装输入
+        # 3. 组装基础系统提示词
         final_system_prompt = self.system_prompt_template.format(
             base_system_prompt=SYSTEM_PROMPT,
             summary=summary if summary else "（暂无相关摘要）",
             long_term_memory=long_term if long_term else "（暂无相关历史片段）"
         )
 
-        messages = [("system", final_system_prompt)]
-        # 加入短期对话历史
-        for m in short_term:
-            role = "human" if isinstance(m, HumanMessage) else "ai"
-            messages.append((role, m.content))
-        
-        # 加入当前用户问题
-        user_content = question
-        if context:
-            user_content = f"【参考资料】\n{context}\n\n我的问题是：{question}"
-        
-        messages.append(("human", user_content))
+        # 4. 动态构建提示词模板并调用 LLM
+        if docs:
+            sys_msg = final_system_prompt + "\n\n【参考资料】\n{context}"
+        else:
+            sys_msg = final_system_prompt
 
-        # 4. 调用 LLM
-        prompt = ChatPromptTemplate.from_messages(messages)
-        chain = prompt | self.llm | StrOutputParser()
-        
-        response = chain.invoke({})
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", sys_msg),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{question}")
+        ])
+
+        if docs:
+            # 确保元数据包含 source 字段以适配模板
+            for d in docs:
+                if "source" not in d.metadata:
+                    d.metadata["source"] = "未知文档"
+
+            document_prompt = PromptTemplate(
+                input_variables=["page_content", "source"],
+                template="[来源：{source}]\n{page_content}"
+            )
+            rag_chain = create_stuff_documents_chain(
+                llm=self.llm,
+                prompt=prompt,
+                document_prompt=document_prompt,
+                document_variable_name="context",
+                document_separator="\n\n---\n\n"
+            )
+            response = rag_chain.invoke({
+                "context": docs,
+                "chat_history": short_term,
+                "question": question
+            })
+        else:
+            chain = prompt | self.llm | StrOutputParser()
+            response = chain.invoke({
+                "chat_history": short_term,
+                "question": question
+            })
 
         # 5. 持久化当前轮次到记忆系统
         self.memory.add_message(HumanMessage(content=question))
@@ -145,9 +163,9 @@ class SmartAgent:
         return response
 
 
-def chat_loop():
+def chat_loop(dao=None, llm=None):
     """交互式问答主循环。"""
-    agent = SmartAgent()
+    agent = SmartAgent(dao=dao, llm=llm)
 
     # 启动时自动同步知识库
     if not agent.sync_knowledge_base():

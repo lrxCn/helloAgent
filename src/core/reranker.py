@@ -10,7 +10,10 @@
 import logging
 
 import httpx
-from langchain_core.documents import Document
+from langchain_core.documents import Document, BaseDocumentCompressor
+from langchain_core.callbacks.manager import Callbacks
+from pydantic import Field, ConfigDict
+from typing import Sequence, Optional
 
 from config.settings import OPENAI_API_KEY, OPENAI_BASE_URL, RERANK_MODEL, RELEVANCE_THRESHOLD
 
@@ -82,8 +85,36 @@ def rerank(
         f"🔄 Rerank 完成: {len(docs)} 篇候选 → {len(results)} 篇通过 "
         f"(threshold={threshold}, model={RERANK_MODEL})"
     )
-    # 打印所有候选的分数，方便调试阈值
     for line in all_scores:
         logger.info(line)
 
     return results
+
+
+class BGERerankCompressor(BaseDocumentCompressor):
+    """自定义 BGE Reranker 压缩器，用于 LangChain 的 ContextualCompressionRetriever。"""
+    top_n: int = Field(default=3, description="重排后保留的文档数量")
+    threshold: Optional[float] = Field(default=None, description="相关度阈值，低于此值的文档将被丢弃")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def compress_documents(
+        self,
+        documents: Sequence[Document],
+        query: str,
+        callbacks: Optional[Callbacks] = None,
+    ) -> Sequence[Document]:
+        """对文档进行重排并返回。"""
+        if not documents:
+            return []
+        
+        results = rerank(query, list(documents), top_n=self.top_n, threshold=self.threshold)
+        
+        final_docs = []
+        for doc, score in results:
+            doc_copy = Document(page_content=doc.page_content, metadata=doc.metadata.copy())
+            doc_copy.metadata["relevance_score"] = score
+            final_docs.append(doc_copy)
+            
+        return final_docs
+
