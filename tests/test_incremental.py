@@ -9,7 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from core.loader import load_all_txt
+from core.loader import load_all_docs
 
 class TestIncrementalSync(unittest.TestCase):
     def setUp(self):
@@ -31,20 +31,20 @@ class TestIncrementalSync(unittest.TestCase):
         self.file1.write_text("Hello World", encoding="utf-8")
         
         # 2. 第一次加载（应全部切分）
-        chunks1 = load_all_txt(self.test_data_dir, chunk_size=500, chunk_overlap=50)
+        chunks1 = load_all_docs(self.test_data_dir)
         self.assertGreater(len(chunks1), 0, "第一次加载应当产生 chunk")
 
         # breakpoint()
         
         # 3. 第二次加载（不修改文件，应被 mtime 拦截）
-        chunks2 = load_all_txt(self.test_data_dir, chunk_size=500, chunk_overlap=50)
+        chunks2 = load_all_docs(self.test_data_dir)
         self.assertEqual(len(chunks2), 0, "未修改时应当被直接拦截，返回空列表")
         # breakpoint()
         
         # 4. 第三次加载（修改文件，应重新切分）
         time.sleep(1) # 睡眠以确保系统 mtime 会更新
         self.file1.write_text("Hello World Updated", encoding="utf-8")
-        chunks3 = load_all_txt(self.test_data_dir, chunk_size=500, chunk_overlap=50)
+        chunks3 = load_all_docs(self.test_data_dir)
         self.assertGreater(len(chunks3), 0, "文件被修改后，应当产生新的 chunk")
         # breakpoint()
 

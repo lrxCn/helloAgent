@@ -13,7 +13,7 @@ from config.settings import (
     OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME, SYSTEM_PROMPT,
     RAG_TOP_K, RAG_RECALL_K, COLLECTION_NAME,
 )
-from core.loader import load_all_txt
+from core.loader import load_all_docs
 from core.reranker import BGERerankCompressor
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from core.memory import MultiLayerMemory
@@ -59,7 +59,7 @@ class SmartAgent:
         """加载数据目录并同步到向量数据库。"""
         print("📂 正在扫描并加载数据目录下的文档...")
         try:
-            chunks = load_all_txt()
+            chunks = load_all_docs()
             if not chunks:
                 logger.warning("没有找到可加载的文档")
                 return False
