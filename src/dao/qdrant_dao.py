@@ -16,6 +16,7 @@ from config.settings import (
 )
 from dao.base import VectorStoreDAO
 from utils.hash import generate_content_hash_id
+from utils.logger import log_function
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class QdrantDAO(VectorStoreDAO):
         )
         logger.debug(f"QdrantDAO 初始化成功: {self.url}, embedding={EMBEDDING_MODEL}")
 
+    @log_function
     def store_documents(
         self, docs: list[Document], collection_name: str
     ) -> None:
@@ -92,6 +94,7 @@ class QdrantDAO(VectorStoreDAO):
             f"删除 {index_result['num_deleted']}"
         )
 
+    @log_function
     def search(
         self, query: str, collection_name: str, top_k: int = 4, filter: dict = None
     ) -> list[Document]:
@@ -114,6 +117,7 @@ class QdrantDAO(VectorStoreDAO):
         logger.debug(f"🔍 检索 [{collection_name}] query='{query[:30]}...' filter={filter} top_k={top_k} → {len(results)} 条结果")
         return results
 
+    @log_function
     def search_with_scores(
         self, query: str, collection_name: str, top_k: int = 10
     ) -> list[tuple[Document, float]]:

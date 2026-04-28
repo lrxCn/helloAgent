@@ -14,6 +14,7 @@ from config.settings import (
     RAG_TOP_K, RAG_RECALL_K, COLLECTION_NAME,
 )
 from core.loader import load_all_docs
+from utils.logger import log_function
 from core.reranker import BGERerankCompressor
 from langchain_classic.retrievers import ContextualCompressionRetriever
 from core.memory import MultiLayerMemory
@@ -71,6 +72,7 @@ class SmartAgent:
             print("❌ 文档加载失败")
             return False
 
+    @log_function
     def get_relevant_docs(self, question: str) -> list:
         """检索并重排序相关文档。"""
         if not self.dao.collection_exists(COLLECTION_NAME):
@@ -96,6 +98,7 @@ class SmartAgent:
             logger.warning(f"检索/Rerank 失败，降级为普通问答: {e}")
             return []
 
+    @log_function
     def answer(self, question: str) -> str:
         """核心问答逻辑：动态组装记忆、知识库并调用 LLM。"""
         # 1. 检索知识库 (RAG)

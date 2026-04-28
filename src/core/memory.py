@@ -1,5 +1,6 @@
 import logging
 from typing import List
+from concurrent.futures import ThreadPoolExecutor
 from sqlalchemy import create_engine, Column, String, Text, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from langchain_community.chat_message_histories import SQLChatMessageHistory
@@ -13,6 +14,7 @@ from config.settings import (
     OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL_NAME
 )
 from dao import get_dao
+from utils.logger import log_function
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,9 @@ class MultiLayerMemory:
             api_key=OPENAI_API_KEY,
             temperature=0
         )
+        
+        # 4. 异步任务线程池
+        self.executor = ThreadPoolExecutor(max_workers=1)
 
     def get_short_term_messages(self) -> List[BaseMessage]:
         """获取短期窗口内的原始消息。"""
@@ -66,6 +71,7 @@ class MultiLayerMemory:
             res = session.query(SessionSummary).filter_by(session_id=self.session_id).first()
             return res.summary if res else ""
 
+    @log_function
     def get_long_term_memories(self, query: str, k: int = 3) -> str:
         """从向量库检索相关的历史记忆。"""
         if not self.dao.collection_exists(MEMORY_COLLECTION_NAME):
@@ -91,10 +97,12 @@ class MultiLayerMemory:
         
         return "\n".join(memories) if memories else ""
 
+    @log_function
     def add_message(self, message: BaseMessage):
         """添加消息并触发维护逻辑。"""
         self.history.add_message(message)
-        self._maintain_memory()
+        # 异步执行维护逻辑，避免阻塞用户回复
+        self.executor.submit(self._maintain_memory)
 
     def _maintain_memory(self):
         """执行滚动压缩与归档逻辑。"""
@@ -120,6 +128,7 @@ class MultiLayerMemory:
             # 3. 从 SQL 原始记录中清理
             self._truncate_sql_history(num_to_archive)
 
+    @log_function
     def _generate_summary(self, old_summary: str, messages: List[BaseMessage]) -> str:
         """调用 LLM 生成更新后的摘要。"""
         new_content = "\n".join([
@@ -145,6 +154,7 @@ class MultiLayerMemory:
                 session.add(SessionSummary(session_id=self.session_id, summary=summary))
             session.commit()
 
+    @log_function
     def _archive_to_vector_db(self, messages: List[BaseMessage]):
         docs = []
         import uuid

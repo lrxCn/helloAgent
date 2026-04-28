@@ -16,10 +16,12 @@ from pydantic import Field, ConfigDict
 from typing import Sequence, Optional
 
 from config.settings import OPENAI_API_KEY, OPENAI_BASE_URL, RERANK_MODEL, RELEVANCE_THRESHOLD
+from utils.logger import log_function
 
 logger = logging.getLogger(__name__)
 
 
+@log_function
 def rerank(
     query: str,
     docs: list[Document],
@@ -98,6 +100,7 @@ class BGERerankCompressor(BaseDocumentCompressor):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    @log_function
     def compress_documents(
         self,
         documents: Sequence[Document],

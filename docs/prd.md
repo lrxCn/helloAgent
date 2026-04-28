@@ -101,22 +101,22 @@
 - **现状**：每次启动时同步扫描本地目录并阻塞执行全量文档的切分和向量化。
 - **演进**：引入消息队列（如 Redis/RabbitMQ/Kafka）和 Webhook。支持用户前端上传文件后，生成异步任务处理文档，后台 Worker 集群按队列消费任务（包括重试、状态追踪、死信队列等），主程序不再被阻塞。
 
-### 7.2 智能文档解析 (Advanced ETL & Parsing)
+### 7.2 智能文档解析 (Advanced ETL & Parsing) ✅ 已实现
 
 - **现状**：单纯的 `TextLoader` 处理，强行按字符和换行符切分，不关注原始文档的结构（如段落、表格、图表）。
 - **演进**：集成专业非结构化数据解析工具（如 Unstructured.io）。实现基于语义块（Semantic Chunking）的切分，保留层级结构（Heading、Paragraph）、表格数据提取、以及可能的 OCR 图像提取。
 
 #### 实现思路建议：
-1. **引入专业解析库 (Unstructured.io)**：
+1. **引入专业解析库 (Unstructured.io)** ✅ 已实现：
    - 替换现有的单一 `TextLoader`，引入 `UnstructuredFileLoader` 或直接使用 `unstructured` 核心库。
    - 支持解析 PDF、Word、HTML、Markdown 等复杂格式，将文档自动分类为结构化元素（如 `Title`, `NarrativeText`, `Table`, `Image` 等）。
-2. **语义化分块 (Semantic Chunking)**：
+2. **语义化分块 (Semantic Chunking)** ✅ 已实现：
    - 摒弃单纯依靠字符长度的 `RecursiveCharacterTextSplitter`。
    - 改用基于文档结构的分块策略（例如 Unstructured 的 `chunk_by_title`），将同一个标题下相关的段落合并为一个 Chunk，确保 LLM 检索时能获取完整的语义片段。
-3. **元数据 (Metadata) 提取与保留**：
+3. **元数据 (Metadata) 提取与保留** ✅ 已实现：
    - 在解析时捕获丰富的上下文 Metadata，包括：文件名、页码、章节层级、上级标题等。
    - 在存入 Qdrant 向量库时，将这些 Metadata 随向量一同写入，以便在检索阶段（Retrieval）支持按 Metadata 进行精准过滤或混合检索（Hybrid Search）。
-4. **多模态与复杂元素处理**：
+4. **多模态与复杂元素处理** ✅ 已实现：
    - **表格提取**：将提取到的表格转换为 HTML 或 Markdown 格式存入，保留行列关系，方便 LLM 进行数据推理。
    - **图像/OCR**：对于扫描版文档或图片，集成 Tesseract 提取文字；对于图表，可借助多模态模型（如 GPT-4o 或 Gemini）预先生成图像摘要（Image Summary），并将摘要文本向量化入库。
 
